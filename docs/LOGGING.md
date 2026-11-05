@@ -92,3 +92,28 @@ compare a successful `playback.committed` timestamp against `play_request_*`,
 `player_state_*`, `player_position_advanced` and `ready_withdraw_*` events.
 The diagnostic build is an investigation aid only; do not close #11 until
 actual audible playback and controlled physical measurements pass.
+
+### Command and execution event semantics
+
+These events describe different levels of the control pipeline and must not be
+treated as interchangeable:
+
+- `client.track_shared` and `client.scheduled_command`: emitted only after a
+  matching `command_ack` with `applied=true`; this means the coordinator
+  accepted the operation, not that the new state was applied everywhere or
+  produced sound.
+- `client.playback_executed`: the local one-shot callback reached its execution
+  branch and requested the corresponding player operation. It does **not**
+  prove `QMediaPlayer.play()` completed, that the output device was active, or
+  that sound was audible.
+- `client.player_state_playing` and `client.player_position_advanced`: derive
+  from Qt player-reported state/position. They do not prove acoustic output or
+  synchronization.
+- `client.member_removed`: the host HTTP removal request returned 204. It does
+  not prove the removed computer is acoustically silent or that the old
+  connection has already stopped processing its last command.
+
+For network control, correlate the client `operationId` (where present), room
+state revision, track generation, event ID and the server-side `event_id` /
+action fields. Never log the bearer token, invitation code, raw room ID,
+absolute media path, media hash or message body.
