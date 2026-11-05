@@ -151,6 +151,41 @@ class TransitionTests(unittest.TestCase):
                          capture_method='synthetic', limits=(2, 5, 10))
         self.assertEqual(result['verdict'], 'OUTSIDE_CONFIGURED_LIMITS')
 
+    def test_late_onset_requires_two_complete_observation_blocks(self):
+        # A 12 ms burst in the final 20 ms used to pass the 60% threshold
+        # with no second complete block left to reveal the following silence.
+        for rate in (44100, 48000, 96000):
+            for delay_ms, duration_ms, expected in (
+                    (280, 12, 'INCOMPLETE'),
+                    (280, 100, 'INCOMPLETE'),  # sustained, but under-observed
+                    (260, 100, 'WITHIN_CONFIGURED_LIMITS')):
+                with self.subTest(rate=rate, delay=delay_ms, duration=duration_ms):
+                    with tempfile.TemporaryDirectory() as temp:
+                        directory = Path(temp)
+                        samples = array('h', [0]) * (rate * 2)
+                        first = round((500 + delay_ms) * rate / 1000)
+                        end = first + round(duration_ms * rate / 1000)
+                        for frame in range(first, end):
+                            samples[2 * frame] = samples[2 * frame + 1] = 12000
+                        if sys.byteorder != 'little':
+                            samples.byteswap()
+                        audio = directory / 'late-onset.wav'
+                        with wave.open(str(audio), 'wb') as wav:
+                            wav.setnchannels(2)
+                            wav.setsampwidth(2)
+                            wav.setframerate(rate)
+                            wav.writeframes(samples.tobytes())
+                        annotations = directory / 'events.json'
+                        annotations.write_text(json.dumps({
+                            'timebase': 'capture-wav-ms',
+                            'annotation_method': 'synthetic known sample indices',
+                            'events': [{'id': 'late', 'kind': 'start',
+                                        'reference_ms': 500, 'window_ms': 300}],
+                        }), encoding='utf-8')
+                        result = analyze(audio, annotations, source='synthetic',
+                                         capture_method='synthetic', limits=(1, 2, 3))
+                        self.assertEqual(result['verdict'], expected)
+
     def test_unrounded_limit_comparison_rejects_marginal_violation(self):
         result = analyze(*self.normal, source='synthetic',
                          capture_method='synthetic', limits=(16.999, 30, 30))

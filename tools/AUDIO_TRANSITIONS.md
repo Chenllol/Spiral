@@ -39,6 +39,10 @@ must not count as the onset of the continuous reference signal.
 **Every subsequent complete 20 ms block through the declared start-event
 window must also satisfy the 60% activity requirement**; an initial pulse
 followed by silence makes the event `INCOMPLETE` instead of a valid start.
+At least two complete 20 ms blocks (40 ms) must remain after the detected
+onset. A later onset with less observation time is `INCOMPLETE`, even if it
+appears sustained; extend the declared capture window and remeasure. This
+prevents a 12 ms pulse in the final 20 ms from being accepted as continuous.
 Stops require at least 10 ms of sustained silence. If a valid waveform falls below the
 activity threshold, calibrate the input or use a justified threshold setting;
 never silently relax the criterion to improve measured results.
@@ -75,3 +79,10 @@ Run deterministic **synthetic-only** coverage with:
 ```bash
 python3 -m unittest discover -v -s tools/tests -p 'test_*.py'
 ```
+
+Both `audio_alignment.py analyze` and `audio_transitions.py` reject an output
+path that resolves to their input WAV, including hard-link aliases. The
+transition tool also protects its annotation manifest. Keep original
+recordings in a separate backed-up location: this guard prevents same-file
+overwrite, but does not authenticate captures or preserve unrelated report
+files already at an explicitly chosen output path.

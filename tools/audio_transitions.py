@@ -66,6 +66,11 @@ def find_transition(values: array, *, channel: int, rate: int, reference: int,
             active = sum(abs(values[2 * k + channel]) >= threshold
                          for k in range(i, i + confirm))
             if active >= math.ceil(confirm * 0.60):
+                # A single 20 ms block can contain only a 12 ms burst and
+                # still reach the 60% activity threshold. Require a second
+                # complete observation block, including for late onsets.
+                if length - i < 2 * confirm:
+                    return None
                 # This is an annotated start of a continuously audible tone,
                 # not a click detector. A brief burst followed by silence must
                 # not be accepted as a valid onset or improve the percentile.
