@@ -1,6 +1,10 @@
 """Deterministic, synthetic-only tests for the offline WAV alignment tool."""
 from array import array
+from contextlib import redirect_stderr, redirect_stdout
+import io
+import json
 import math
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -10,7 +14,7 @@ import wave
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools.audio_alignment import (  # noqa: E402
-    analyze, detect_onsets, generate_click_track, pair_onsets, percentile,
+    analyze, detect_onsets, generate_click_track, main, pair_onsets, percentile,
 )
 
 RATE = 48000
@@ -142,6 +146,51 @@ class AcousticHarnessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze(self.normal, expected_clicks=40, source_claim="synthetic",
                     capture_method="synthetic", limits=(20, 10, 30))
+
+    def test_report_cannot_overwrite_source_or_path_alias(self) -> None:
+        before = self.normal.read_bytes()
+        nested = self.directory / "nested"
+        nested.mkdir(exist_ok=True)
+        aliases = (self.normal, nested / ".." / self.normal.name)
+        for target in aliases:
+            with self.subTest(target=str(target)), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as stopped:
+                    main(["analyze", "--input", str(self.normal), "--output", str(target),
+                          "--expected-clicks", "40", "--source", "synthetic",
+                          "--capture-method", "synthetic"])
+                self.assertEqual(stopped.exception.code, 2)
+                self.assertEqual(self.normal.read_bytes(), before)
+
+    def test_report_cannot_overwrite_hardlinked_source(self) -> None:
+        before = self.normal.read_bytes()
+        alias = self.directory / "source-hardlink.wav"
+        try:
+            os.link(self.normal, alias)
+        except OSError as exc:
+            self.skipTest(f"hard links unavailable: {exc}")
+        try:
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as stopped:
+                    main(["analyze", "--input", str(self.normal), "--output", str(alias),
+                          "--expected-clicks", "40", "--source", "synthetic",
+                          "--capture-method", "synthetic"])
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertEqual(self.normal.read_bytes(), before)
+            self.assertEqual(alias.read_bytes(), before)
+        finally:
+            alias.unlink()
+
+    def test_report_to_separate_file_preserves_source(self) -> None:
+        before = self.normal.read_bytes()
+        output = self.directory / "report.json"
+        with redirect_stdout(io.StringIO()):
+            status = main(["analyze", "--input", str(self.normal), "--output", str(output),
+                           "--expected-clicks", "40", "--source", "synthetic",
+                           "--capture-method", "synthetic"])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["verdict"],
+                         "MEASURED_NO_PREDECLARED_LIMITS")
+        self.assertEqual(self.normal.read_bytes(), before)
 
 
 if __name__ == "__main__":

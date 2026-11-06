@@ -11,6 +11,7 @@ from array import array
 from datetime import datetime, timezone
 import json
 import math
+import os
 from pathlib import Path
 import statistics
 import sys
@@ -222,6 +223,14 @@ def analyze(
     }
 
 
+def same_path(left: Path, right: Path) -> bool:
+    """Recognize the input file even through resolved or hard-link aliases."""
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -254,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
         provided = (args.p50_limit_ms, args.p95_limit_ms, args.max_limit_ms)
         if any(x is not None for x in provided) and not all(x is not None for x in provided):
             parser.error("all three P50/P95/max limits are required for a bounded verdict")
+        if args.output is not None and same_path(args.output, args.input):
+            parser.error("output must not overwrite the input WAV")
         result = analyze(
             args.input, expected_clicks=args.expected_clicks, source_claim=args.source,
             capture_method=args.capture_method, threshold=args.threshold,
